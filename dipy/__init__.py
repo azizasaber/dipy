@@ -78,3 +78,5 @@ submodules = [
 ]
 
 __all__ = submodules + ["__version__", "setup_test", "get_info"]
+
+print("Register for DIPY workshop 2025.")
