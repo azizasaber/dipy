@@ -1084,6 +1084,7 @@ class ReconstCSDFlow(Workflow):
                 logger.info(f"Ratio for smallest to largest eigen value is {ratio}")
 
             else:
+                iso = 3 if iso < 3 else iso
                 need_tissue_classification = (
                     len({wm_files, gm_files, csf_files} - {None}) < iso
                 )
