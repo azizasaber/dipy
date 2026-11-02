@@ -18,6 +18,7 @@ from os.path import isdir, join, splitext
 from shutil import copyfile, rmtree
 
 import numpy as np
+import os
 from scipy.optimize import linear_sum_assignment
 
 from dipy.align.bundlemin import distance_matrix_mdf
@@ -28,7 +29,9 @@ from dipy.io.streamline import (
     StatefulTractogram,
     create_tractogram_header,
     load_trk,
+    load_trx,
     save_trk,
+    save_trx,
 )
 from dipy.segment.clustering import QuickBundles, qbx_and_merge
 from dipy.tracking.streamline import (
@@ -320,7 +323,7 @@ def _load_bundle(file, return_header=False):
     Parameters
     ----------
     file : str
-        Path to the .trk file containing the bundle.
+        Path to the .trk or .trx file containing the bundle.
     return_header : bool, optional
         If True, returns both the bundle and header information.
         Default is False.
@@ -340,19 +343,26 @@ def _load_bundle(file, return_header=False):
     This is a private function used internally by the atlasing module to load
     and process bundle files consistently.
     """
-    bundle_obj = load_trk(file, reference="same", bbox_valid_check=False)
-
-    if len(bundle_obj.streamlines) > 0:
-        bundle = list(bundle_obj.streamlines)
+    # bundle_obj = load_trk(file, reference="same", bbox_valid_check=False)
+    if file.lower().endswith(".trx"):
+        bundle_obj = load_trx(file, reference="same", bbox_valid_check=False)
     else:
-        bundle = bundle_obj
+        bundle_obj = load_trk(file, reference="same", bbox_valid_check=False)
+
+    # if len(bundle_obj.streamlines) > 0:
+        # bundle = list(bundle_obj.streamlines)
+    # else:
+        # bundle = bundle_obj
+    sls = [np.asarray(sl, dtype=np.float64) for sl in bundle_obj.streamlines]
+    bundle = Streamlines(sls)
+    bundle[:] = sls
 
     if return_header:
-        header = create_tractogram_header(file, *bundle_obj.space_attributes)
+        # header = create_tractogram_header(file, *bundle_obj.space_attributes)
+        header_file = file if file.lower().endswith(".trk") else file[:-4] + ".trk"
+        header = create_tractogram_header(header_file, *bundle_obj.space_attributes)
         return bundle, header
-
     return bundle
-
 
 def compute_atlas_bundle(
     in_dir,
@@ -495,7 +505,7 @@ def compute_atlas_bundle(
             raise ValueError(f"Path to subject bundles {bundle_dir} does not exist")
 
         files = listdir(bundle_dir)
-        trk_files = [file for file in files if file.endswith(".trk")]
+        trk_files = [file for file in files if file.endswith((".trk", ".trx"))] # if file.endswith(".trk")]
         bundle_names = [splitext(file)[0] for file in trk_files]
     elif not isinstance(bundle_names, list):
         df = pd.read_csv(bundle_names, delimiter="\t", dtype="object")
@@ -510,7 +520,10 @@ def compute_atlas_bundle(
     bundle_files = {}
     for sub in subjects:
         for bundle in bundle_names:
-            file = join(in_dir, sub, mid_path, bundle + ".trk")
+	    # file = join(in_dir, sub, mid_path, bundle + ".trk")
+            base = os.path.join(in_dir, sub, mid_path, bundle)
+            file = base + ".trk" if os.path.exists(base + ".trk") else base + ".trx"
+
             bundle_files[(sub, bundle)] = file
 
     # Atlas building starts
@@ -616,9 +629,11 @@ def compute_atlas_bundle(
                     aligned = Streamlines(aligned)
 
                 elif reg_method == "bundlewarp":
-                    static, aligned, _, _, _ = bundlewarp(
+                    deformed_bundle, _, _, _, _ = bundlewarp(
                         Streamlines(static), Streamlines(moving), alpha=alpha
-                    )
+                        )
+                    static = Streamlines(static)
+                    aligned = Streamlines(deformed_bundle)
 
                 # Randomly skip steps if specified to get sharper results
                 if skip_pairs and np.random.choice([True, False], 1)[0]:
